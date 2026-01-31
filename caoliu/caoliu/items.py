@@ -20,3 +20,7 @@ class CaoliuItem(scrapy.Item):
     images = scrapy.Field()
     # 下载链接（占位，后续完成）
     download_link = scrapy.Field()
+    # 视频下载量（从列表页获取）
+    download_count = scrapy.Field()
+    # 图片下载是否成功（Pipeline内部使用）
+    download_success = scrapy.Field()

@@ -50,6 +50,8 @@ DOWNLOAD_DELAY = 1
 DOWNLOADER_MIDDLEWARES = {
     # 禁用OffsiteMiddleware，允许下载外部图片（如qpic.ws）
     "scrapy.downloadermiddlewares.offsite.OffsiteMiddleware": None,
+    # 启用 Cloudflare 绕过中间件（用于处理 tu.ymawv.la 等受保护图床）
+    "caoliu.middlewares.CloudflareBypassMiddleware": 543,
 }
 
 # Enable or disable extensions
@@ -61,14 +63,17 @@ DOWNLOADER_MIDDLEWARES = {
 # Configure item pipelines
 # See https://docs.scrapy.org/en/latest/topics/item-pipeline.html
 ITEM_PIPELINES = {
-    "caoliu.pipelines.CaoliuIndexPipeline": 1,  # 首先分配video_id并写入CSV
-    "caoliu.pipelines.CaoliuImagesPipeline": 100,  # 然后下载图片
-    "caoliu.pipelines.CaoliuPipeline": 300,  # 最后处理
+    "caoliu.pipelines.CaoliuIndexPipeline": 1,      # 首先分配video_id（不写入CSV）
+    "caoliu.pipelines.CaoliuImagesPipeline": 100,   # 下载图片并标记成功/失败
+    "caoliu.pipelines.CaoliuFinalPipeline": 300,    # 成功则写入CSV，失败则删除文件夹
 }
 
 # ============ 草榴爬虫配置 ============
 # 下载根目录 (可自定义修改)
 CAOLIU_DOWNLOAD_DIR = "./downloads"
+
+# 最低下载量阈值（只抓取下载量 >= 此值的帖子，设为 0 表示不过滤）
+CAOLIU_MIN_DOWNLOAD_COUNT = 1500
 
 # 图片保存路径 (相对于项目根目录)
 IMAGES_STORE = "./downloads"

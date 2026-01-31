@@ -9,11 +9,22 @@ class CaoliuSpider(scrapy.Spider):
     allowed_domains = ["t66y.com"]
 
     # 爬取的页数范围（可在settings中通过CAOLIU_MAX_PAGES配置）
-    start_page = 9
-    max_page = 3
+    start_page = 20
+    max_page = 5
+    
+    # 最低下载量阈值（从settings读取）
+    min_download_count = 0
+
+    @classmethod
+    def from_crawler(cls, crawler, *args, **kwargs):
+        """从crawler获取settings配置"""
+        spider = super().from_crawler(crawler, *args, **kwargs)
+        spider.min_download_count = crawler.settings.getint('CAOLIU_MIN_DOWNLOAD_COUNT', 0)
+        return spider
 
     def start_requests(self):
         """生成多页的起始请求"""
+        self.logger.info(f"最低下载量阈值: {self.min_download_count}")
         base_url = "https://t66y.com/thread0806.php?fid=25&search=&page={}"
         for page in range(self.start_page, self.start_page + self.max_page):
             url = base_url.format(page)
@@ -30,21 +41,46 @@ class CaoliuSpider(scrapy.Spider):
 
         # 提取帖子列表中的所有链接
         posts = response.xpath('//*[@id="tbody"]//tr')
+        
+        skipped_count = 0
 
         for post in posts:
             # 帖子标题和链接在 h3/a 或 td/a 中
             link = post.xpath(".//td[2]//h3/a/@href | .//td[2]/a/@href").get()
             title = post.xpath(".//td[2]//h3/a/text() | .//td[2]/a/text()").get()
+            
+            # 提取下载量 - 位于第5列 (td[5])
+            download_count_text = post.xpath(".//td[5]/text()").get()
+            download_count = None
+            if download_count_text:
+                download_count_text = download_count_text.strip()
+                # 处理可能是 '--' 或空的情况
+                if download_count_text.isdigit():
+                    download_count = int(download_count_text)
 
             if link:
+                # 检查下载量是否满足阈值
+                if self.min_download_count > 0:
+                    if download_count is None or download_count < self.min_download_count:
+                        skipped_count += 1
+                        self.logger.debug(
+                            f"跳过低下载量帖子: {title[:30]}... (下载量: {download_count}, 阈值: {self.min_download_count})"
+                        )
+                        continue
+                
                 # 构建完整的URL
                 full_url = response.urljoin(link)
-                self.logger.info(f"发现帖子: {title} -> {full_url}")
+                self.logger.info(f"发现帖子: {title} -> {full_url}, 下载量: {download_count}")
 
                 # 跳转到二级页面进行详情解析
                 yield scrapy.Request(
-                    url=full_url, callback=self.parse_detail, meta={"list_title": title}
+                    url=full_url, 
+                    callback=self.parse_detail, 
+                    meta={"list_title": title, "download_count": download_count}
                 )
+        
+        if skipped_count > 0:
+            self.logger.info(f"第 {page} 页跳过 {skipped_count} 个低下载量帖子")
 
     def parse_detail(self, response):
         """
@@ -97,8 +133,12 @@ class CaoliuSpider(scrapy.Spider):
         magnet_link = self._extract_magnet(rmdown_link)
         item["download_link"] = magnet_link
 
+        # 4. 下载量 - 从列表页传递过来
+        item["download_count"] = response.meta.get("download_count")
+
         self.logger.info(
-            f"解析完成: {item['title']}, 图片数: {len(item['image_urls'])}, magnet: {magnet_link is not None}"
+            f"解析完成: {item['title']}, 图片数: {len(item['image_urls'])}, "
+            f"下载量: {item['download_count']}, magnet: {magnet_link is not None}"
         )
 
         yield item
